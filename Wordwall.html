@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wordwall test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Dva režimy: učiteľ (vlož iframe → odkaz + QR) a žiak (hra na celú plochu, odchod = koniec) */
+:root{
+  --bg:#EDF2F1; --panel:#FFFFFF; --ink:#13221F; --muted:#566763; --line:#C9D4D1;
+  --accent:#0E6E62; --on-accent:#FFFFFF;
+  --warn:#9A5A00; --warn-bg:#FFF4E0; --stop:#B3261E; --stop-bg:#FDECEA;
+  --font:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0F1715; --panel:#17221F; --ink:#E3ECE9; --muted:#93A5A0; --line:#2C3B37;
+    --accent:#45B5A5; --on-accent:#08201C;
+    --warn:#F2A93B; --warn-bg:#2E2412; --stop:#F2766D; --stop-bg:#331715;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.45}
+[hidden]{display:none!important}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+.wrap{min-height:100%;display:grid;place-items:center;padding:24px 16px}
+.card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;display:grid;gap:16px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+h1{font-size:26px;line-height:1.15;margin:0;text-wrap:balance}
+p{margin:0}
+.note{font-size:14px;color:var(--muted)}
+.field{display:grid;gap:6px}
+.field label{font-weight:700;font-size:14px}
+textarea,input[type=text]{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+textarea{min-height:92px;resize:vertical;font-size:14px;font-family:ui-monospace,Consolas,monospace}
+.btn{border:0;border-radius:10px;padding:12px 18px;font-weight:700;background:var(--accent);color:var(--on-accent);text-decoration:none;text-align:center;display:inline-block}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.err{color:var(--stop);font-weight:700;font-size:14px}
+
+/* učiteľ: výsledok */
+.out{display:grid;gap:14px;justify-items:center;padding-top:6px;border-top:1px solid var(--line)}
+.qr{background:#FFFFFF;padding:14px;border-radius:10px;line-height:0}
+.qr img,.qr canvas{display:block;width:240px;height:240px;max-width:100%}
+.link{width:100%;font-size:13px;word-break:break-all;color:var(--muted);text-align:center}
+
+/* QR na projektor */
+.proj{position:fixed;inset:0;z-index:20;background:#FFFFFF;color:#13221F;display:grid;place-items:center;align-content:center;gap:20px;padding:24px 16px;cursor:pointer}
+.proj .qr{padding:0}
+.proj .qr img,.proj .qr canvas{width:min(78vh,90vw);height:min(78vh,90vw)}
+.proj p{font-size:clamp(18px,3vw,30px);font-weight:700;text-align:center}
+
+/* žiak */
+.rules{padding:14px;border-radius:10px;background:var(--warn-bg);color:var(--ink);display:grid;gap:6px}
+.rules b{color:var(--warn)}
+.game{position:fixed;inset:0;background:var(--panel)}
+.game iframe{width:100%;height:100%;border:0;display:block}
+.end{position:fixed;inset:0;z-index:30;background:var(--stop-bg);display:grid;place-items:center;padding:24px 16px}
+.end .card{border:4px solid var(--stop);text-align:center;justify-items:center}
+.end h1{color:var(--stop);font-size:36px}
+.end .time{font-size:48px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+@media (prefers-reduced-motion: no-preference){ .end .card{animation:pop .35s ease-out} }
+@keyframes pop{from{transform:scale(.92);opacity:.4}to{transform:none;opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- ===== UČITEĽ ===== -->
+<main id="teacher" class="wrap" hidden>
+  <div class="card">
+    <div>
+      <p class="eyebrow">Pre učiteľa</p>
+      <h1>Wordwall test bez prepínania</h1>
+    </div>
+    <div class="field">
+      <label for="inCode">Vlož embed kód alebo odkaz z Wordwallu</label>
+      <textarea id="inCode" placeholder='&lt;iframe src="https://wordwall.net/embed/play/…"&gt;&lt;/iframe&gt;   alebo   https://wordwall.net/play/…'></textarea>
+    </div>
+    <div class="field">
+      <label for="inTitle">Názov pre žiakov (nepovinné)</label>
+      <input id="inTitle" type="text" placeholder="napr. Ekosystémy" autocomplete="off">
+    </div>
+    <p id="tErr" class="err" hidden></p>
+    <div id="out" class="out" hidden>
+      <div class="qr" id="qr"></div>
+      <p class="link" id="link"></p>
+      <div class="row" style="justify-content:center">
+        <button class="btn" id="btnProj">QR na celú obrazovku</button>
+        <button class="btn ghost" id="btnCopy">Kopírovať odkaz</button>
+        <a class="btn ghost" id="btnTry" target="_blank" rel="noopener">Vyskúšať</a>
+      </div>
+    </div>
+    <p class="note">Výsledky do „Moje výsledky“ ukladá len hra zdieľaná ako úloha (Nastaviť úlohu). Bežný embed sa hrá bez výsledkov.</p>
+  </div>
+</main>
+<div id="proj" class="proj" hidden title="Kliknutím zavrieš">
+  <div class="qr" id="qrBig"></div>
+  <p id="projTitle"></p>
+</div>
+
+<!-- ===== ŽIAK ===== -->
+<main id="start" class="wrap" hidden>
+  <div class="card">
+    <div>
+      <p class="eyebrow">Test vo Wordwalle</p>
+      <h1 id="sTitle">Wordwall test</h1>
+    </div>
+    <div class="rules">
+      <p>Počas hry <b>neprepínaj aplikáciu ani kartu</b> a nezamykaj mobil.</p>
+      <p>Ak odídeš, <b>test sa okamžite ukončí</b> a nedá sa vrátiť.</p>
+    </div>
+    <button class="btn" id="btnStart">Začať hru</button>
+  </div>
+</main>
+<div id="game" class="game" hidden><iframe id="frame" title="Wordwall hra" allow="fullscreen; autoplay" allowfullscreen></iframe></div>
+<div id="end" class="end" hidden role="alert">
+  <div class="card">
+    <h1>Test ukončený</h1>
+    <p>Opustil si hru.</p>
+    <p class="time" id="endAt">--:--</p>
+    <p class="note">Ukáž túto obrazovku učiteľovi.</p>
+  </div>
+</div>
+<main id="bad" class="wrap" hidden>
+  <div class="card"><h1>Neplatný odkaz</h1><p class="note">Požiadaj učiteľa o nový QR kód.</p></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function () {
+  var TOLERANCIA_MS = 1000;          // kratší výpadok sa nepočíta
+  var ZAMOK_MS = 3 * 60 * 60 * 1000; // ukončený test ostane zamknutý 3 hodiny
+
+  var $ = function (id) { return document.getElementById(id); };
+  var qs = new URLSearchParams(location.search);
+  var BASE = location.origin + location.pathname;
+
+  // Z embed kódu / odkazu vytiahne bezpečnú cestu na wordwall.net
+  function parseWordwall(text) {
+    text = String(text || '').replace(/&amp;/g, '&');
+    var m = text.match(/https?:\/\/(?:www\.)?wordwall\.net\/[^\s"'<>]+/i);
+    if (!m) return null;
+    var u;
+    try { u = new URL(m[0]); } catch (e) { return null; }
+    var path = u.pathname.replace(/^\/+/, '');
+    if (/(^|\/)resource\//.test(path)) return { error: 'Toto je odkaz na aktivitu, nie na hru. Použi Zdieľať → Vložiť (embed), alebo Nastaviť úlohu.' };
+    if (!/(^|\/)(embed|play)\//.test(path)) return { error: 'Tento odkaz z Wordwallu sa nedá spustiť. Vlož embed kód alebo odkaz na úlohu.' };
+    return { g: path + u.search };
+  }
+  function gameUrl(g) {
+    if (!g || /[\s"'<>]/.test(g) || /^\/|\/\/|\.\./.test(g)) return '';
+    return 'https://wordwall.net/' + g;
+  }
+
+  var g = qs.get('g');
+  if (g === null) teacher(); else student(g, qs.get('t') || '');
+
+  // ================= UČITEĽ =================
+  function teacher() {
+    $('teacher').hidden = false;
+    var studentLink = '';
+    function render() {
+      var code = $('inCode').value.trim();
+      $('tErr').hidden = true; $('out').hidden = true;
+      if (!code) return;
+      var r = parseWordwall(code);
+      if (!r || r.error) { $('tErr').textContent = (r && r.error) || 'Nenašiel som odkaz na wordwall.net.'; $('tErr').hidden = false; return; }
+      var p = new URLSearchParams(); p.set('g', r.g);
+      var t = $('inTitle').value.trim(); if (t) p.set('t', t);
+      studentLink = BASE + '?' + p.toString();
+      $('link').textContent = studentLink;
+      $('btnTry').href = studentLink + '&test=1';
+      drawQR($('qr'), studentLink, 240);
+      $('out').hidden = false;
+    }
+    function drawQR(el, text, size) {
+      el.innerHTML = '';
+      if (window.QRCode) new QRCode(el, { text: text, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+      else el.textContent = 'QR sa nenačítal – skontroluj internet.';
+    }
+    $('inCode').addEventListener('input', render);
+    $('inTitle').addEventListener('input', render);
+    $('btnCopy').addEventListener('click', function () {
+      var b = this;
+      function ok() { b.textContent = 'Skopírované'; setTimeout(function () { b.textContent = 'Kopírovať odkaz'; }, 1500); }
+      if (navigator.clipboard) navigator.clipboard.writeText(studentLink).then(ok, sel); else sel();
+      function sel() { var r = document.createRange(); r.selectNodeContents($('link')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+    });
+    $('btnProj').addEventListener('click', function () {
+      drawQR($('qrBig'), studentLink, 800);
+      $('projTitle').textContent = $('inTitle').value.trim() || 'Naskenuj a hraj';
+      $('proj').hidden = false;
+      try { var x = $('proj').requestFullscreen && $('proj').requestFullscreen(); if (x && x.catch) x.catch(function () {}); } catch (e) {}
+    });
+    $('proj').addEventListener('click', function () {
+      $('proj').hidden = true;
+      try { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); } catch (e) {}
+    });
+  }
+
+  // ================= ŽIAK =================
+  function student(g, title) {
+    var src = gameUrl(g);
+    if (!src) { $('bad').hidden = false; return; }
+    if (title) { $('sTitle').textContent = title; document.title = title; }
+
+    var TEST = qs.get('test') === '1'; // učiteľov „Vyskúšať“ – nič sa nezamyká
+    var KEY = 'wwlock:' + g;
+    function getLock() { if (TEST) return null; try { var v = JSON.parse(localStorage.getItem(KEY) || 'null'); return v && Date.now() - v.t < ZAMOK_MS ? v : null; } catch (e) { return null; } }
+    function setLock(state, t) { if (TEST) return; try { localStorage.setItem(KEY, JSON.stringify({ s: state, t: t || Date.now() })); } catch (e) {} }
+    function clearLock() { try { localStorage.removeItem(KEY); } catch (e) {} }
+
+    // Ukončený test alebo odchod, počas ktorého sa stránka zavrela → rovno koniec
+    var lock = getLock();
+    if (lock && (lock.s === 'end' || lock.s === 'away')) { showEnd(lock.t); setLock('end', lock.t); return; }
+
+    $('start').hidden = false;
+    var watching = false, awaySince = 0;
+
+    $('btnStart').addEventListener('click', function () {
+      try { var r = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if (r && r.catch) r.catch(function () {}); } catch (e) {}
+      $('start').hidden = true;
+      $('frame').src = src;
+      $('game').hidden = false;
+      clearLock();
+      watching = true;
+    });
+
+    function here() { return !document.hidden && document.hasFocus(); }
+    function check() {
+      if (!watching) return;
+      if (!here()) {
+        if (!awaySince) { awaySince = Date.now(); setLock('away', awaySince); }
+        else if (Date.now() - awaySince >= TOLERANCIA_MS) end(awaySince);
+      } else if (awaySince) {
+        if (Date.now() - awaySince >= TOLERANCIA_MS) { end(awaySince); return; } // časovače boli zmrazené
+        awaySince = 0; clearLock();
+      }
+    }
+    function end(t) {
+      watching = false;
+      setLock('end', t);
+      $('frame').src = 'about:blank';
+      $('game').hidden = true;
+      try { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); } catch (e) {}
+      showEnd(t);
+    }
+
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('blur', function () { setTimeout(check, 60); });
+    window.addEventListener('focus', check);
+    window.addEventListener('pagehide', function () { if (watching) setLock('away', awaySince || Date.now()); });
+    setInterval(check, 250);
+  }
+
+  function showEnd(t) {
+    var d = new Date(t || Date.now());
+    $('endAt').textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    $('start').hidden = true; $('game').hidden = true;
+    $('end').hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
